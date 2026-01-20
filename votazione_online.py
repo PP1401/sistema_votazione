@@ -12,7 +12,7 @@ st.markdown("""
     .voter-card { padding: 20px; border-radius: 10px; border: 1px solid #e6e9ef; background-color: white; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .result-card { padding: 15px; border-left: 5px solid #4A90E2; background-color: white; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     </style>
-    """, unsafe_allow_items=True)
+    """, unsafe_allow_html=True)
 
 # 2. Gestione dello Stato
 if 'fase' not in st.session_state:
