@@ -1,129 +1,111 @@
 import streamlit as st
 import pandas as pd
 
-# 1. Configurazione Stile e Layout
-st.set_page_config(page_title="Voting System Pro", page_icon="🗳️", layout="centered")
+# 1. Configurazione Pagina
+st.set_page_config(page_title="Votazione Live", page_icon="🌐", layout="centered")
 
-# CSS personalizzato per rendere l'interfaccia più moderna
+# Funzione per simulare un database condiviso (in un caso reale useresti st.connection)
+# Usiamo l'annotazione @st.cache_resource per far sì che questo oggetto sia lo stesso per TUTTI gli utenti
+@st.cache_resource
+def get_global_data():
+    return {
+        "punteggi": {}, 
+        "password": "", 
+        "votanti_effettivi": 0,
+        "voti_registrati": [] # Per evitare che la stessa persona voti due volte (basato su ID sessione)
+    }
+
+data = get_global_data()
+
+# CSS per rendere l'interfaccia moderna
 st.markdown("""
     <style>
-    .main { background-color: #f8f9fa; }
-    .stButton>button { width: 100%; border-radius: 8px; height: 3em; background-color: #4A90E2; color: white; }
-    .voter-card { padding: 20px; border-radius: 10px; border: 1px solid #e6e9ef; background-color: white; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .result-card { padding: 15px; border-left: 5px solid #4A90E2; background-color: white; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .stMetric { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .voto-card { border: 1px solid #ddd; padding: 20px; border-radius: 10px; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. Gestione dello Stato
-if 'fase' not in st.session_state:
-    st.session_state.fase = "config"
-if 'punteggi' not in st.session_state:
-    st.session_state.punteggi = {}
-if 'voti_effettuati' not in st.session_state:
-    st.session_state.voti_effettuati = 0
-if 'totale_votanti' not in st.session_state:
-    st.session_state.totale_votanti = 0
+# --- LOGICA DI ACCESSO ---
+st.title("🗳️ Sistema di Voto Globale")
 
-# --- FUNZIONI DI SUPPORTO ---
-def reset_gara():
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.rerun()
-
-# --- A. SCHERMATA CONFIGURAZIONE ---
-if st.session_state.fase == "config":
-    st.title("⚙️ Configurazione")
-    with st.container():
-        st.markdown('<div class="voter-card">', unsafe_allow_html=True)
-        prop_raw = st.text_area("Proposte (una per riga o separate da virgola):", placeholder="Esempio:\nProposta A\nProposta B\nProposta C")
-        n_votanti = st.number_input("Numero di persone che voteranno:", min_value=1, value=5)
+# Se l'admin non ha ancora impostato nulla
+if not data["password"]:
+    st.info("In attesa che l'Amministratore configuri la sessione...")
+    with st.expander("Area Amministratore"):
+        pwd_admin = st.text_input("Imposta Password per questa votazione:", type="password")
+        prop_admin = st.text_area("Proposte (separate da virgola):")
+        if st.button("Avvia Sessione Globale"):
+            if pwd_admin and prop_admin:
+                lista = [p.strip() for p in prop_admin.split(",") if p.strip()]
+                data["punteggi"] = {p: 0 for p in lista}
+                data["password"] = pwd_admin
+                data["voti_registrati"] = []
+                st.rerun()
+            else:
+                st.error("Inserisci password e proposte!")
+else:
+    # --- INTERFACCIA UTENTE (VOTO E CLASSIFICA) ---
+    
+    # Sidebar per Autenticazione
+    with st.sidebar:
+        st.header("Autenticazione")
+        pass_inserita = st.text_input("Inserisci Password Votazione:", type="password")
         
-        if st.button("Configura ed Inizia"):
-            # Pulizia input: accetta sia virgole che invio
-            lista = prop_raw.replace('\n', ',').split(',')
-            proposte = [p.strip() for p in lista if p.strip()]
+    if pass_inserita == data["password"]:
+        st.success("Accesso eseguito! Puoi votare o vedere i risultati.")
+        
+        # Layout a due colonne: Voto a sinistra, Classifica a destra
+        col_voto, col_classifica = st.columns([1, 1])
+        
+        with col_voto:
+            st.subheader("La tua Scheda")
             
-            if len(proposte) < 3:
-                st.error("Inserisci almeno 3 proposte per i 3 livelli di voto!")
+            # Controllo se l'utente ha già votato in questa sessione browser
+            if st.session_state.get("ha_votato", False):
+                st.warning("Hai già inviato il tuo voto in questa sessione.")
             else:
-                st.session_state.punteggi = {p: 0 for p in proposte}
-                st.session_state.totale_votanti = n_votanti
-                st.session_state.fase = "voto"
+                with st.form("form_voto"):
+                    opzioni = sorted(list(data["punteggi"].keys()))
+                    c1 = st.selectbox("1ª Scelta (3 pt)", ["-"] + opzioni)
+                    c2 = st.selectbox("2ª Scelta (2 pt)", ["-"] + opzioni)
+                    c3 = st.selectbox("3ª Scelta (1 pt)", ["-"] + opzioni)
+                    
+                    if st.form_submit_button("Invia Voto"):
+                        scelte = [c1, c2, c3]
+                        if "-" in scelte or len(set(scelte)) < 3:
+                            st.error("Seleziona 3 opzioni diverse.")
+                        else:
+                            # Aggiornamento dati GLOBALI
+                            data["punteggi"][c1] += 3
+                            data["punteggi"][c2] += 2
+                            data["punteggi"][c3] += 1
+                            data["votanti_effettivi"] += 1
+                            st.session_state["ha_votato"] = True
+                            st.balloons()
+                            st.rerun()
+
+        with col_classifica:
+            st.subheader("Classifica Live")
+            st.write(f"Voti totali ricevuti: **{data['votanti_effettivi']}**")
+            
+            # Creazione classifica
+            df = pd.DataFrame(data["punteggi"].items(), columns=["Opzione", "Punti"])
+            df = df.sort_values(by="Punti", ascending=False)
+            
+            # Mostra i risultati
+            for i, row in df.iterrows():
+                st.write(f"**{row['Opzione']}**: {row['Punti']} pt")
+                st.progress(min(row['Punti'] / (data['votanti_effettivi'] * 3 + 1), 1.0))
+            
+            if st.button("Aggiorna Classifica"):
                 st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
-# --- B. SCHERMATA DI VOTO ---
-elif st.session_state.fase == "voto":
-    st.title(f"🗳️ Sessione di Voto")
-    
-    # Barra di avanzamento
-    progresso = st.session_state.voti_effettuati / st.session_state.totale_votanti
-    st.progress(progresso)
-    st.write(f"Votante **{st.session_state.voti_effettuati + 1}** di {st.session_state.totale_votanti}")
+    elif pass_inserita != "":
+        st.error("Password errata.")
+    else:
+        st.warning("Inserisci la password nella barra laterale per partecipare.")
 
-    st.markdown('<div class="voter-card">', unsafe_allow_html=True)
-    with st.form("scheda_voto", clear_on_submit=True):
-        st.subheader("La tua preferenza")
-        opzioni = sorted(list(st.session_state.punteggi.keys()))
-        
-        c1 = st.selectbox("🥇 1ª Scelta (3 punti)", ["-"] + opzioni)
-        c2 = st.selectbox("🥈 2ª Scelta (2 punti)", ["-"] + opzioni)
-        c3 = st.selectbox("🥉 3ª Scelta (1 punto)", ["-"] + opzioni)
-        
-        if st.form_submit_button("Conferma Scelte"):
-            scelte = [c1, c2, c3]
-            if "-" in scelte:
-                st.error("Seleziona tutte e tre le opzioni.")
-            elif len(set(scelte)) < 3:
-                st.error("Non puoi votare la stessa proposta più volte.")
-            else:
-                # Assegnazione punti
-                st.session_state.punteggi[c1] += 3
-                st.session_state.punteggi[c2] += 2
-                st.session_state.punteggi[c3] += 1
-                
-                st.session_state.voti_effettuati += 1
-                
-                if st.session_state.voti_effettuati >= st.session_state.totale_votanti:
-                    st.session_state.fase = "risultati"
-                st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Avviso Privacy
-    st.info("💡 I risultati sono nascosti. Verranno mostrati solo dopo l'ultimo voto.")
-
-# --- C. SCHERMATA RISULTATI ---
-elif st.session_state.fase == "risultati":
-    st.title("📊 Risultati Finali")
-    st.balloons()
-    
-    # Elaborazione dati
-    df = pd.DataFrame(st.session_state.punteggi.items(), columns=["Proposta", "Punti"])
-    df = df.sort_values(by="Punti", ascending=False).reset_index(drop=True)
-    
-    # Podio Visivo
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("🏆 Vincitore", df.iloc[0]["Proposta"], f"{df.iloc[0]['Punti']} pt")
-    with col2:
-        if len(df) > 1: st.metric("🥈 2° Posto", df.iloc[1]["Proposta"], f"{df.iloc[1]['Punti']} pt")
-    with col3:
-        if len(df) > 2: st.metric("🥉 3° Posto", df.iloc[2]["Proposta"], f"{df.iloc[2]['Punti']} pt")
-
-    st.write("---")
-    
-    # Classifica dettagliata con card
-    for i, row in df.iterrows():
-        st.markdown(f"""
-            <div class="result-card">
-                <span style="font-weight:bold; color:#4A90E2;">{i+1}° Posto:</span> 
-                {row['Proposta']} — <strong>{row['Punti']} Punti</strong>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # Grafico
-    st.subheader("Distribuzione Voti")
-    st.bar_chart(df.set_index("Proposta"))
-
-    if st.button("Nuova Votazione"):
-        reset_gara()
+# Tasto di Reset (solo per l'Admin, visibile in fondo)
+if st.sidebar.button("Termina e Reset Totale"):
+    st.cache_resource.clear()
+    st.rerun()
